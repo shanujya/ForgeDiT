@@ -1,0 +1,104 @@
+# ====================
+# Python
+# ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+wheels/
+.eggs/
+lib/
+lib64/
+*.pyo
+*.pyd
+
+# ====================
+# Virtual Environments
+# ====================
+venv/
+.venv/
+env/
+.env/
+ENV/
+env.bak/
+venv.bak/
+
+# ====================
+# Environment Variables / Secrets
+# ====================
+.env
+.env.*
+*.env
+secrets.json
+secrets.yaml
+
+# ====================
+# IDE & Editors
+# ====================
+# VS Code
+.vscode/
+# JetBrains (PyCharm, IntelliJ, etc.)
+.idea/
+*.iml
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+# Vim / Neovim
+*.swp
+*.swo
+*~
+
+# ====================
+# OS Files
+# ====================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+# Linux
+*~
+
+# ====================
+# Logs & Temp Files
+# ====================
+*.log
+*.tmp
+*.temp
+*.bak
+*.cache
+
+# ====================
+# Testing & Coverage
+# ====================
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# ====================
+# Jupyter Notebooks
+# ====================
+.ipynb_checkpoints/
+
+# ====================
+# Distribution / Packaging
+# ====================
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt

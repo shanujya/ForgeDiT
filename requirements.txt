@@ -1,0 +1,9 @@
+torch
+torchvision
+diffusers>=0.25.0
+transformers>=4.36.0
+accelerate>=0.25.0
+opencv-python
+pillow
+numpy
+matplotlib
