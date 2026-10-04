@@ -1,49 +1,62 @@
+<div align="center">
+
 # 🎨 ForgeDiT Studio
 
-> **Sketch-to-Photorealistic Product Render Pipeline** powered by Latent Diffusion & ControlNet
+### Sketch → Photorealistic Product Render Pipeline
+*Powered by Latent Diffusion Models & ControlNet*
 
-[![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=flat-square&logo=python)](https://www.python.org/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?style=flat-square&logo=pytorch)](https://pytorch.org/)
-[![Diffusers](https://img.shields.io/badge/🤗%20Diffusers-0.25%2B-yellow?style=flat-square)](https://huggingface.co/docs/diffusers)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
+<br/>
+
+[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![Diffusers](https://img.shields.io/badge/🤗_Diffusers-0.25%2B-FFD21E?style=for-the-badge)](https://huggingface.co/docs/diffusers)
+[![ControlNet](https://img.shields.io/badge/ControlNet-SD_v1.5-8B5CF6?style=for-the-badge)](https://github.com/lllyasviel/ControlNet)
+[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)](LICENSE)
+
+<br/>
+
+> A product designer draws a rough sketch → ForgeDiT understands its geometry → outputs a **studio-quality photorealistic render**, preserving the original shape with precision.
+
+</div>
 
 ---
 
 ## 🧠 What is ForgeDiT Studio?
 
-**ForgeDiT Studio** is an AI-powered product design pipeline that transforms rough 2D line sketches into high-fidelity, photorealistic product renders using **Latent Diffusion Models** conditioned via **ControlNet**.
+**ForgeDiT Studio** is an AI-powered product design pipeline that transforms raw 2D line sketches into high-fidelity, photorealistic product renders. It combines:
 
-The core idea: a product designer draws a quick sketch → the pipeline understands its geometry via Canny edge detection → a text-guided diffusion model renders a premium studio-quality product photograph — all while faithfully preserving the original shape and structure.
+- **Canny Edge Detection** — extracts structural geometry from any sketch
+- **ControlNet** — conditions the diffusion model on the extracted edge map
+- **Stable Diffusion v1.5** — generates the final photorealistic render guided by a text prompt
 
-**Target use case (Phase 1):** High-top athletic sneakers rendered as commercial product photography.
+**Phase 1 target:** High-top athletic sneakers rendered as commercial product photography.
 
 ---
 
-## 🏗️ Architecture Overview
+## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                       ForgeDiT Pipeline                         │
-│                                                                 │
-│  [Sketch Input]  ──►  [Canny Preprocessor]  ──►  [ControlNet]  │
-│       │                      │                        │         │
-│  Line drawing            Edge map               Geometry guide  │
-│  (512×512)             (3-channel)              for diffusion   │
-│                                                        │         │
-│                    [Text Prompt] ──────────────►  [SD v1.5]     │
-│                         │                        Base LDM Model │
-│                  "photorealistic                       │         │
-│                   sneaker..."                          │         │
-│                                                        ▼         │
-│                                              [Product Render]   │
-│                                              (512×512 PNG)      │
-└─────────────────────────────────────────────────────────────────┘
+                         ForgeDiT Pipeline
+  ─────────────────────────────────────────────────────────────
+
+  [Sketch Input]  ──►  [Canny Preprocessor]  ──►  [ControlNet]
+      │                       │                         │
+  Line drawing            Edge map               Geometry guide
+  (512×512)             (3-channel)              for diffusion
+                                                         │
+                      [Text Prompt]  ──────────►  [SD v1.5 LDM]
+                            │                           │
+                    "photorealistic                      │
+                     sneaker..."                         ▼
+                                               [Product Render]
+                                               (512×512 PNG)
 ```
 
-**Models Used:**
-- 🧠 **Base Model:** `runwayml/stable-diffusion-v1-5` — Latent Diffusion
-- 🎛️ **ControlNet:** `lllyasviel/sd-controlnet-canny` — Shape/Geometry conditioning
-- ⚡ **Scheduler:** `UniPCMultistepScheduler` — Fast, high-quality sampling in 20 steps
+| Component | Model | Purpose |
+|-----------|-------|---------|
+| 🧠 Base Model | `runwayml/stable-diffusion-v1-5` | Latent Diffusion backbone |
+| 🎛️ ControlNet | `lllyasviel/sd-controlnet-canny` | Shape & geometry conditioning |
+| ⚡ Scheduler | `UniPCMultistepScheduler` | Fast, high-quality sampling (20 steps) |
 
 ---
 
@@ -53,47 +66,47 @@ The core idea: a product designer draws a quick sketch → the pipeline understa
 forgedit-studio/
 │
 ├── src/
-│   ├── sketch_generator.py   # Programmatic sneaker sketch generator (test utility)
-│   ├── preprocessor.py       # Canny edge map extractor for ControlNet conditioning
-│   └── pipeline.py           # Core ControlNet + SD diffusion pipeline class
+│   ├── sketch_generator.py   # Programmatic sneaker sketch generator
+│   ├── preprocessor.py       # Canny edge map extractor for ControlNet
+│   └── pipeline.py           # Core ControlNet + SD diffusion pipeline
 │
 ├── outputs/                  # Generated artifacts (gitignored)
-│   ├── 01_input_sketch.png   # The programmatic line sketch
-│   ├── 02_canny_edge_map.png # Extracted edge conditioning map
-│   └── 03_product_render_output.png  # Final photorealistic render (Phase 1 output)
+│   ├── 01_input_sketch.png        # Input line sketch
+│   ├── 02_canny_edge_map.png      # Extracted edge conditioning map
+│   └── 03_product_render_output.png  # Final photorealistic render
 │
-├── run_phase1.py             # End-to-end Phase 1 test runner script
+├── run_phase1.py             # End-to-end Phase 1 runner
 ├── requirements.txt          # Python dependencies
-├── LICENSE                   # MIT License
-└── README.md                 # This file
+├── LICENSE
+└── README.md
 ```
 
 ---
 
-## ✅ Progress — What We've Built So Far
+## ✅ Progress
 
-### ✅ Phase 1: Core Pipeline Prototype (COMPLETED)
+### Phase 1 — Core Pipeline Prototype `COMPLETED ✅`
 
-| Step | Module | Description | Status |
-|------|--------|-------------|--------|
-| 1 | `sketch_generator.py` | Programmatic 2D line sketch of a high-top sneaker using OpenCV draw primitives | ✅ Done |
-| 2 | `preprocessor.py` | Gaussian blur + Canny edge detection → 3-channel edge map for ControlNet input | ✅ Done |
-| 3 | `pipeline.py` | Full `StableDiffusionControlNetPipeline` with UniPC scheduler, FP16/FP32 auto-detection, and CUDA/CPU fallback | ✅ Done |
-| 4 | `run_phase1.py` | End-to-end orchestrator: generates sketch → extracts edges → loads models → renders & saves output | ✅ Done |
+| # | Module | Description | Status |
+|---|--------|-------------|--------|
+| 1 | `sketch_generator.py` | Programmatic 2D line sketch of a high-top sneaker via OpenCV primitives | ✅ |
+| 2 | `preprocessor.py` | Gaussian blur + Canny edge detection → 3-channel edge map for ControlNet | ✅ |
+| 3 | `pipeline.py` | Full `StableDiffusionControlNetPipeline` with UniPC scheduler, FP16/FP32 auto-detection, CUDA/CPU fallback | ✅ |
+| 4 | `run_phase1.py` | End-to-end orchestrator: sketch → edges → model load → render & save | ✅ |
 
-**Phase 1 validated the full sketch → edge map → ControlNet-conditioned render loop.**
+> **Phase 1 validated the full sketch → edge map → ControlNet-conditioned render loop.**
 
 ---
 
-### 🚧 Phase 2: Planned Next Steps
+### Phase 2 — Planned Enhancements `🚧 NEXT`
 
-- [ ] **Real Sketch Input** — Replace programmatic sketch with actual user-drawn / tablet sketches
+- [ ] **Real Sketch Input** — Support actual user-drawn / tablet sketches
 - [ ] **Multi-Product Support** — Extend beyond sneakers to bags, watches, furniture, etc.
-- [ ] **Prompt Engineering UI** — Interactive prompt builder for material, color, lighting presets
+- [ ] **Prompt Engineering UI** — Interactive builder for material, color, and lighting presets
 - [ ] **ControlNet Weight Tuning** — Sweep `controlnet_conditioning_scale` for optimal geometry adherence
-- [ ] **Inpainting & Editing** — Allow partial region edits on existing renders
-- [ ] **SDXL Upgrade** — Migrate base model to Stable Diffusion XL for 1024×1024 renders
-- [ ] **Web Interface** — Gradio or FastAPI-based UI for real-time interactive rendering
+- [ ] **Inpainting & Editing** — Partial region edits on existing renders
+- [ ] **SDXL Upgrade** — Migrate to Stable Diffusion XL for 1024×1024 output
+- [ ] **Web Interface** — Gradio or FastAPI UI for real-time interactive rendering
 - [ ] **Batch Processing** — Multiple sketch variants → render grid for design iteration
 
 ---
@@ -105,36 +118,41 @@ forgedit-studio/
 ```bash
 git clone https://github.com/shanujya/forgedit-studio.git
 cd forgedit-studio
-python -m venv venv
-source venv/bin/activate   # On Windows: venv\Scripts\activate
+
+python3 -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+
 pip install -r requirements.txt
 ```
 
-### 2. Run Phase 1 Pipeline
+### 2. Run the Phase 1 Pipeline
 
 ```bash
-python run_phase1.py
+python3 run_phase1.py
 ```
 
-This will:
-1. 🖊️ Generate a programmatic sneaker sketch → `outputs/01_input_sketch.png`
-2. 🔍 Extract the Canny edge map → `outputs/02_canny_edge_map.png`
-3. 🤖 Download models from HuggingFace (~4-6 GB, cached after first run)
-4. 🎨 Run 20-step ControlNet diffusion render → `outputs/03_product_render_output.png`
+**What happens:**
 
-> **⚠️ Note:** First run downloads ~4–6 GB of model weights. A CUDA-capable GPU is strongly recommended. CPU inference works but is very slow (~5–30 min per image).
+| Step | Action | Output |
+|------|--------|--------|
+| 1 | 🖊️ Generate programmatic sneaker sketch | `outputs/01_input_sketch.png` |
+| 2 | 🔍 Extract Canny edge map | `outputs/02_canny_edge_map.png` |
+| 3 | 🤖 Download models from HuggingFace (~4–6 GB, cached) | — |
+| 4 | 🎨 Run 20-step ControlNet diffusion render | `outputs/03_product_render_output.png` |
+
+> ⚠️ **First run** downloads ~4–6 GB of model weights. A CUDA-capable GPU is strongly recommended. CPU inference works but is significantly slower (~5–30 min/image).
 
 ---
 
 ## ⚙️ Configuration
 
-Key parameters in `run_phase1.py` you can tweak:
+Tweak these parameters in `run_phase1.py` to control output quality:
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `controlnet_conditioning_scale` | `0.8` | How strongly ControlNet enforces the sketch geometry (0.0–1.0) |
-| `guidance_scale` | `7.5` | CFG scale — how strongly the prompt guides the output |
-| `num_inference_steps` | `20` | Denoising steps — more = higher quality, slower |
+| `controlnet_conditioning_scale` | `0.8` | Sketch geometry enforcement strength (0.0 – 1.0) |
+| `guidance_scale` | `7.5` | CFG scale — prompt influence on the output |
+| `num_inference_steps` | `20` | Denoising steps (more = higher quality, slower) |
 | `seed` | `42` | Random seed for reproducibility |
 
 ---
@@ -146,47 +164,51 @@ torch                 # Deep learning backend
 torchvision           # Vision utilities
 diffusers >= 0.25.0   # HuggingFace diffusion models
 transformers >= 4.36  # HuggingFace transformer models
-accelerate >= 0.25.0  # Distributed training / inference utilities
+accelerate >= 0.25.0  # Distributed inference utilities
 opencv-python         # Canny edge detection & sketch drawing
 pillow                # Image I/O
 numpy                 # Numerical operations
 matplotlib            # Visualization (planned)
 ```
 
+Install all at once:
+```bash
+pip install -r requirements.txt
+```
+
 ---
 
 ## 🖥️ Hardware Requirements
 
-| Setup | Support |
-|-------|---------|
-| NVIDIA GPU (8GB+ VRAM) | ✅ Recommended — FP16, fast inference |
-| NVIDIA GPU (4–8 GB VRAM) | ⚠️ Works with attention slicing enabled |
-| CPU only | 🐢 Functional but very slow (FP32) |
+| Setup | VRAM | Support |
+|-------|------|---------|
+| NVIDIA GPU | 8 GB+ | ✅ Recommended — FP16, fast inference |
+| NVIDIA GPU | 4–8 GB | ⚠️ Works with attention slicing enabled |
+| CPU only | — | 🐢 Functional but slow (FP32) |
 
 ---
 
 ## 🗺️ Roadmap
 
 ```
-Phase 1  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ✅ DONE
-  Core pipeline: sketch → edge → render
+Phase 1  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  ✅  COMPLETE
+  Core pipeline · sketch → edge → render
 
-Phase 2  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  🚧 NEXT
-  Real sketch input, multi-product, prompt UI
+Phase 2  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  🚧  IN PROGRESS
+  Real sketch input · multi-product · prompt UI
 
-Phase 3  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  📋 PLANNED
-  SDXL upgrade, inpainting, web interface
+Phase 3  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  📋  PLANNED
+  SDXL upgrade · inpainting · web interface
 
-Phase 4  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  🔭 FUTURE
-  Designer studio app, batch render, export
+Phase 4  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  🔭  FUTURE
+  Designer studio app · batch render · export
 ```
 
 ---
 
 ## 👤 Author
 
-**Shanujya Mishra**
-© 2026 — MIT License
+**Shanujya Mishra** — © 2026
 
 ---
 
