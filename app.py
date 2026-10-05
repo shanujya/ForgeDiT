@@ -2,6 +2,7 @@ import os
 import sys
 import random
 import time
+import traceback
 import numpy as np
 from PIL import Image
 import gradio as gr
@@ -24,6 +25,18 @@ def get_pipeline():
         pipeline.load_models()
         GLOBAL_PIPELINE = pipeline
     return GLOBAL_PIPELINE
+
+
+def ensure_white_background(img: Image.Image) -> Image.Image:
+    """Composites an RGBA image over a white background so transparent pixels don't turn black."""
+    if img is None:
+        return None
+    if img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info):
+        alpha_img = img.convert('RGBA')
+        white_bg = Image.new('RGBA', alpha_img.size, (255, 255, 255, 255))
+        composite_img = Image.alpha_composite(white_bg, alpha_img)
+        return composite_img.convert('RGB')
+    return img.convert('RGB')
 
 
 def extract_pil_from_input(sketch_input) -> Image.Image:
@@ -55,10 +68,7 @@ def extract_pil_from_input(sketch_input) -> Image.Image:
     else:
         return None
 
-    # Convert to RGB mode
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
-    return img
+    return ensure_white_background(img)
 
 
 def construct_full_prompt(product_type, material, finish, lighting, custom_text):
@@ -83,8 +93,13 @@ def construct_full_prompt(product_type, material, finish, lighting, custom_text)
 
 def generate_sample_sketch_wrapper():
     """Generates a sample sneaker sketch for quick testing."""
-    sample = generate_sample_sneaker_sketch(width=512, height=512)
-    return sample
+    sample_pil = generate_sample_sneaker_sketch(width=512, height=512)
+    # Return dictionary format compatible with Gradio ImageEditor
+    return {
+        "background": sample_pil,
+        "layers": [],
+        "composite": sample_pil
+    }
 
 
 def render_product(
@@ -105,55 +120,63 @@ def render_product(
     """Core event handler that executes preprocessor and diffusion pipeline."""
     start_time = time.time()
     
-    # 1. Extract PIL image from sketch input
-    sketch_img = extract_pil_from_input(sketch_input)
-    if sketch_img is None:
-        # Fallback to sample sneaker sketch if empty input
-        sketch_img = generate_sample_sneaker_sketch(width=512, height=512)
-        status_prefix = "⚠️ Canvas empty! Auto-loaded sample sneaker sketch. "
-    else:
-        status_prefix = "✅ Sketch loaded. "
+    try:
+        # 1. Extract PIL image from sketch input
+        sketch_img = extract_pil_from_input(sketch_input)
+        if sketch_img is None:
+            # Fallback to sample sneaker sketch if empty input
+            sketch_img = generate_sample_sneaker_sketch(width=512, height=512)
+            status_prefix = "⚠️ Canvas empty! Auto-loaded sample sneaker sketch. "
+        else:
+            status_prefix = "✅ Sketch loaded. "
+            
+        # Resize to standard 512x512 for SD v1.5
+        sketch_img = sketch_img.resize((512, 512), Image.Resampling.LANCZOS)
         
-    # Resize to standard 512x512 for SD v1.5
-    sketch_img = sketch_img.resize((512, 512), Image.Resampling.LANCZOS)
-    
-    # 2. Extract Canny Edge Map
-    canny_map = process_sketch_to_canny(
-        sketch_img, 
-        low_threshold=int(canny_low), 
-        high_threshold=int(canny_high)
-    )
-    
-    # 3. Construct Prompts
-    full_prompt = construct_full_prompt(product_type, material, finish, lighting, custom_prompt)
-    if not negative_prompt or not negative_prompt.strip():
-        negative_prompt = "blurry, low quality, distorted geometry, extra lines, noise, dark shadows, cartoon, drawing"
+        # 2. Extract Canny Edge Map
+        canny_map = process_sketch_to_canny(
+            sketch_img, 
+            low_threshold=int(canny_low), 
+            high_threshold=int(canny_high)
+        )
         
-    # 4. Handle Seed
-    if seed_input == -1 or seed_input is None:
-        active_seed = random.randint(0, 2**31 - 1)
-    else:
-        active_seed = int(seed_input)
+        # 3. Construct Prompts
+        full_prompt = construct_full_prompt(product_type, material, finish, lighting, custom_prompt)
+        if not negative_prompt or not negative_prompt.strip():
+            negative_prompt = "blurry, low quality, distorted geometry, extra lines, noise, dark shadows, cartoon, drawing"
+            
+        # 4. Handle Seed
+        if seed_input == -1 or seed_input is None:
+            active_seed = random.randint(0, 2**31 - 1)
+        else:
+            active_seed = int(seed_input)
+            
+        # 5. Load Pipeline & Run Inference
+        pipe = get_pipeline()
+        rendered_img = pipe.generate(
+            canny_image=canny_map,
+            prompt=full_prompt,
+            negative_prompt=negative_prompt,
+            controlnet_conditioning_scale=float(controlnet_scale),
+            guidance_scale=float(guidance_scale),
+            num_inference_steps=int(num_steps),
+            seed=active_seed
+        )
         
-    # 5. Load Pipeline & Run Inference
-    pipe = get_pipeline()
-    rendered_img = pipe.generate(
-        canny_image=canny_map,
-        prompt=full_prompt,
-        negative_prompt=negative_prompt,
-        controlnet_scale=float(controlnet_scale),
-        guidance_scale=float(guidance_scale),
-        num_inference_steps=int(num_steps),
-        seed=active_seed
-    )
-    
-    elapsed = time.time() - start_time
-    status = (
-        f"{status_prefix}Rendered in {elapsed:.2f}s | "
-        f"Seed: {active_seed} | ControlNet Scale: {controlnet_scale} | CFG: {guidance_scale}"
-    )
-    
-    return rendered_img, canny_map, sketch_img, full_prompt, status
+        elapsed = time.time() - start_time
+        status = (
+            f"{status_prefix}Rendered in {elapsed:.2f}s | "
+            f"Seed: {active_seed} | ControlNet Scale: {controlnet_scale} | CFG: {guidance_scale}"
+        )
+        
+        return rendered_img, canny_map, sketch_img, full_prompt, status
+
+    except Exception as err:
+        err_msg = f"❌ Error during rendering: {str(err)}\n{traceback.format_exc()}"
+        print(err_msg)
+        # Create blank fallback images for UI stability
+        blank_img = Image.new("RGB", (512, 512), (240, 240, 240))
+        return blank_img, blank_img, blank_img, "Error generating prompt", err_msg
 
 
 # Build Gradio UI Theme & Blocks Layout
@@ -171,7 +194,7 @@ custom_css = """
 .accent-box { background-color: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; padding: 12px; }
 """
 
-with gr.Blocks(theme=theme, css=custom_css, title="ForgeDiT Studio") as demo:
+with gr.Blocks(title="ForgeDiT Studio") as demo:
     
     gr.HTML("""
     <div id="main-header">
@@ -195,7 +218,6 @@ with gr.Blocks(theme=theme, css=custom_css, title="ForgeDiT Studio") as demo:
             
             with gr.Row():
                 sample_btn = gr.Button("✏️ Load Sample Sneaker Sketch", variant="secondary", size="sm")
-                clear_btn = gr.Button("🧹 Clear Canvas", variant="stop", size="sm")
 
             gr.Markdown("### 2. Design & Material Presets")
             with gr.Row():
@@ -293,7 +315,7 @@ with gr.Blocks(theme=theme, css=custom_css, title="ForgeDiT Studio") as demo:
                     output_sketch = gr.Image(label="Input Line Art", type="pil", interactive=False)
 
             full_prompt_display = gr.Textbox(label="Active Full Prompt", interactive=False, lines=2)
-            status_box = gr.Textbox(label="System Status & Metrics", interactive=False, lines=1)
+            status_box = gr.Textbox(label="System Status & Metrics", interactive=False, lines=3)
 
     # Event Bindings
     sample_btn.click(
@@ -324,4 +346,4 @@ with gr.Blocks(theme=theme, css=custom_css, title="ForgeDiT Studio") as demo:
 
 if __name__ == "__main__":
     # Launch Gradio local web server
-    demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False)
+    demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, theme=theme, css=custom_css)
