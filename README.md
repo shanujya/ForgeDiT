@@ -97,17 +97,13 @@ forgedit-studio/
 > **Phase 1 validated the full sketch → edge map → ControlNet-conditioned render loop.**
 
 ---
+### Phase 2 — Interactive Studio `✅ IMPLEMENTED`
 
-### Phase 2 — Planned Enhancements `🚧 NEXT`
-
-- [ ] **Real Sketch Input** — Support actual user-drawn / tablet sketches
-- [ ] **Multi-Product Support** — Extend beyond sneakers to bags, watches, furniture, etc.
-- [ ] **Prompt Engineering UI** — Interactive builder for material, color, and lighting presets
-- [ ] **ControlNet Weight Tuning** — Sweep `controlnet_conditioning_scale` for optimal geometry adherence
-- [ ] **Inpainting & Editing** — Partial region edits on existing renders
-- [ ] **SDXL Upgrade** — Migrate to Stable Diffusion XL for 1024×1024 output
-- [ ] **Web Interface** — Gradio or FastAPI UI for real-time interactive rendering
-- [ ] **Batch Processing** — Multiple sketch variants → render grid for design iteration
+- [x] **Interactive Sketch Canvas** — Draw sketches live in browser or upload custom image drawings
+- [x] **Multi-Product Support** — Sneakers, handbags, headphones, furniture, watches, concept cars, power tools
+- [x] **Preset Prompt Engineering UI** — Material, surface finish, and studio lighting dropdown builders
+- [x] **ControlNet & CFG Tuning** — Interactive sliders for sketch geometry adherence and prompt strength
+- [x] **Gradio Web Interface** — Full interactive studio web app ([app.py](file:///home/shanujya/forgedit-studio/app.py))
 
 ---
 
@@ -125,7 +121,14 @@ source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 2. Run the Phase 1 Pipeline
+### 2. Launch the Gradio Web Studio (Phase 2)
+
+```bash
+python3 app.py
+```
+Open `http://localhost:7860` in your browser to access the interactive sketch canvas and rendering studio!
+
+### 3. Run CLI Pipeline (Phase 1)
 
 ```bash
 python3 run_phase1.py
