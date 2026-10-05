@@ -7,3 +7,4 @@ opencv-python
 pillow
 numpy
 matplotlib
+gradio>=4.0.0

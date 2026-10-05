@@ -1,0 +1,327 @@
+import os
+import sys
+import random
+import time
+import numpy as np
+from PIL import Image
+import gradio as gr
+
+# Ensure src modules can be imported
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
+from src.preprocessor import process_sketch_to_canny
+from src.sketch_generator import generate_sample_sneaker_sketch
+from src.pipeline import ProductDesignPipeline
+
+# Global pipeline instance for lazy loading
+GLOBAL_PIPELINE = None
+
+def get_pipeline():
+    global GLOBAL_PIPELINE
+    if GLOBAL_PIPELINE is None:
+        print("[ForgeDiT Studio] Initializing ProductDesignPipeline...")
+        pipeline = ProductDesignPipeline(use_fp16=True)
+        pipeline.load_models()
+        GLOBAL_PIPELINE = pipeline
+    return GLOBAL_PIPELINE
+
+
+def extract_pil_from_input(sketch_input) -> Image.Image:
+    """Extracts a valid PIL RGB Image from Gradio's ImageEditor dictionary or PIL Image."""
+    if sketch_input is None:
+        return None
+    
+    if isinstance(sketch_input, Image.Image):
+        img = sketch_input
+    elif isinstance(sketch_input, dict):
+        if "composite" in sketch_input and sketch_input["composite"] is not None:
+            img = sketch_input["composite"]
+        elif "background" in sketch_input and sketch_input["background"] is not None:
+            bg = sketch_input["background"].copy()
+            if "layers" in sketch_input and sketch_input["layers"]:
+                for layer in sketch_input["layers"]:
+                    if layer is not None:
+                        if layer.mode == 'RGBA':
+                            bg.paste(layer, (0, 0), layer)
+                        else:
+                            bg.paste(layer, (0, 0))
+            img = bg
+        elif "layers" in sketch_input and sketch_input["layers"]:
+            img = sketch_input["layers"][0]
+        else:
+            return None
+    elif isinstance(sketch_input, np.ndarray):
+        img = Image.fromarray(sketch_input)
+    else:
+        return None
+
+    # Convert to RGB mode
+    if img.mode != 'RGB':
+        img = img.convert('RGB')
+    return img
+
+
+def construct_full_prompt(product_type, material, finish, lighting, custom_text):
+    """Constructs a detailed prompt from user selections."""
+    components = [
+        f"Commercial product photography of a {product_type.lower()}",
+        f"made of {material.lower()}",
+        f"with a {finish.lower()} finish"
+    ]
+    if custom_text and custom_text.strip():
+        components.append(custom_text.strip())
+        
+    components.extend([
+        f"{lighting.lower()}",
+        "8k resolution",
+        "photorealistic studio render",
+        "sharp focus",
+        "isolated on clean background"
+    ])
+    return ", ".join(components)
+
+
+def generate_sample_sketch_wrapper():
+    """Generates a sample sneaker sketch for quick testing."""
+    sample = generate_sample_sneaker_sketch(width=512, height=512)
+    return sample
+
+
+def render_product(
+    sketch_input,
+    product_type,
+    material,
+    finish,
+    lighting,
+    custom_prompt,
+    negative_prompt,
+    controlnet_scale,
+    guidance_scale,
+    num_steps,
+    seed_input,
+    canny_low,
+    canny_high
+):
+    """Core event handler that executes preprocessor and diffusion pipeline."""
+    start_time = time.time()
+    
+    # 1. Extract PIL image from sketch input
+    sketch_img = extract_pil_from_input(sketch_input)
+    if sketch_img is None:
+        # Fallback to sample sneaker sketch if empty input
+        sketch_img = generate_sample_sneaker_sketch(width=512, height=512)
+        status_prefix = "⚠️ Canvas empty! Auto-loaded sample sneaker sketch. "
+    else:
+        status_prefix = "✅ Sketch loaded. "
+        
+    # Resize to standard 512x512 for SD v1.5
+    sketch_img = sketch_img.resize((512, 512), Image.Resampling.LANCZOS)
+    
+    # 2. Extract Canny Edge Map
+    canny_map = process_sketch_to_canny(
+        sketch_img, 
+        low_threshold=int(canny_low), 
+        high_threshold=int(canny_high)
+    )
+    
+    # 3. Construct Prompts
+    full_prompt = construct_full_prompt(product_type, material, finish, lighting, custom_prompt)
+    if not negative_prompt or not negative_prompt.strip():
+        negative_prompt = "blurry, low quality, distorted geometry, extra lines, noise, dark shadows, cartoon, drawing"
+        
+    # 4. Handle Seed
+    if seed_input == -1 or seed_input is None:
+        active_seed = random.randint(0, 2**31 - 1)
+    else:
+        active_seed = int(seed_input)
+        
+    # 5. Load Pipeline & Run Inference
+    pipe = get_pipeline()
+    rendered_img = pipe.generate(
+        canny_image=canny_map,
+        prompt=full_prompt,
+        negative_prompt=negative_prompt,
+        controlnet_scale=float(controlnet_scale),
+        guidance_scale=float(guidance_scale),
+        num_inference_steps=int(num_steps),
+        seed=active_seed
+    )
+    
+    elapsed = time.time() - start_time
+    status = (
+        f"{status_prefix}Rendered in {elapsed:.2f}s | "
+        f"Seed: {active_seed} | ControlNet Scale: {controlnet_scale} | CFG: {guidance_scale}"
+    )
+    
+    return rendered_img, canny_map, sketch_img, full_prompt, status
+
+
+# Build Gradio UI Theme & Blocks Layout
+theme = gr.themes.Soft(
+    primary_hue="indigo",
+    secondary_hue="slate",
+    neutral_hue="zinc",
+    font=[gr.themes.GoogleFont("Outfit"), "ui-sans-serif", "system-ui"]
+)
+
+custom_css = """
+#main-header { text-align: center; margin-bottom: 1.5rem; }
+#main-header h1 { font-size: 2.2rem; font-weight: 700; color: #3b82f6; }
+#main-header p { font-size: 1.05rem; color: #64748b; }
+.accent-box { background-color: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 8px; padding: 12px; }
+"""
+
+with gr.Blocks(theme=theme, css=custom_css, title="ForgeDiT Studio") as demo:
+    
+    gr.HTML("""
+    <div id="main-header">
+        <h1>🎨 ForgeDiT Studio</h1>
+        <p>Interactive Industrial & Product Design Rendering Engine powered by Diffusion Transformers & ControlNet</p>
+    </div>
+    """)
+    
+    with gr.Row():
+        # LEFT COLUMN: INPUTS & CONTROLS
+        with gr.Column(scale=5):
+            gr.Markdown("### 1. Sketch Canvas & Input")
+            
+            sketch_editor = gr.ImageEditor(
+                label="Draw Product Outline or Upload Sketch",
+                type="pil",
+                image_mode="RGB",
+                height=380,
+                sources=["upload", "clipboard"]
+            )
+            
+            with gr.Row():
+                sample_btn = gr.Button("✏️ Load Sample Sneaker Sketch", variant="secondary", size="sm")
+                clear_btn = gr.Button("🧹 Clear Canvas", variant="stop", size="sm")
+
+            gr.Markdown("### 2. Design & Material Presets")
+            with gr.Row():
+                product_type = gr.Dropdown(
+                    choices=[
+                        "High-top Athletic Sneaker",
+                        "Running Shoe",
+                        "Luxury Leather Handbag",
+                        "Minimalist Over-Ear Headphones",
+                        "Modern Lounge Armchair",
+                        "Ergonomic Power Drill",
+                        "Minimalist Wristwatch",
+                        "Concept Electric Car"
+                    ],
+                    value="High-top Athletic Sneaker",
+                    label="Product Category"
+                )
+                material = gr.Dropdown(
+                    choices=[
+                        "Italian Calfskin Leather",
+                        "Premium Suede & Mesh",
+                        "Brushed Anodized Aluminum",
+                        "Matte Carbon Fiber",
+                        "Translucent Polymer & Gel",
+                        "Mustard Bouclé Fabric & Walnut Wood",
+                        "Heavy-duty Rubberized Alloy"
+                    ],
+                    value="Italian Calfskin Leather",
+                    label="Material"
+                )
+                
+            with gr.Row():
+                finish = gr.Dropdown(
+                    choices=["Matte", "High-Gloss", "Textured Grain", "Brushed Satin", "Metallic Accent"],
+                    value="Matte",
+                    label="Surface Finish"
+                )
+                lighting = gr.Dropdown(
+                    choices=[
+                        "Soft Studio Box Lighting",
+                        "Dramatic Cinematic Rim Lighting",
+                        "Top-Down Gallery Spotlight",
+                        "Warm Afternoon Sunlight"
+                    ],
+                    value="Soft Studio Box Lighting",
+                    label="Lighting Setup"
+                )
+
+            custom_prompt = gr.Textbox(
+                label="Custom Accent Details (Optional)",
+                placeholder="e.g. crimson red accent stripes, gum rubber sole, gold buckle",
+                lines=1
+            )
+
+            with gr.Accordion("⚙️ Advanced Model & ControlNet Parameters", open=False):
+                with gr.Row():
+                    controlnet_scale = gr.Slider(
+                        minimum=0.0, maximum=1.0, value=0.8, step=0.05,
+                        label="ControlNet Strength (Sketch Geometry Adherence)"
+                    )
+                    guidance_scale = gr.Slider(
+                        minimum=1.0, maximum=20.0, value=7.5, step=0.5,
+                        label="CFG Scale (Prompt Adherence)"
+                    )
+                with gr.Row():
+                    num_steps = gr.Slider(
+                        minimum=10, maximum=50, value=20, step=1,
+                        label="Inference Steps"
+                    )
+                    seed_input = gr.Number(
+                        value=-1, label="Random Seed (-1 for random)", precision=0
+                    )
+                with gr.Row():
+                    canny_low = gr.Slider(minimum=10, maximum=200, value=100, step=10, label="Canny Low Threshold")
+                    canny_high = gr.Slider(minimum=50, maximum=300, value=200, step=10, label="Canny High Threshold")
+                    
+                negative_prompt = gr.Textbox(
+                    label="Negative Prompt",
+                    value="blurry, low quality, distorted geometry, extra lines, noise, dark shadows, cartoon, drawing",
+                    lines=1
+                )
+
+            render_btn = gr.Button("🚀 Render Photorealistic Product", variant="primary", size="lg")
+
+        # RIGHT COLUMN: OUTPUTS & INSPECTION
+        with gr.Column(scale=5):
+            gr.Markdown("### 3. Generated Studio Renders & Mask Inspection")
+            
+            with gr.Tabs():
+                with gr.Tab("🖼️ Photorealistic Render"):
+                    output_render = gr.Image(label="Render Output (512x512)", type="pil", interactive=False)
+                with gr.Tab("🔍 Extracted Canny Mask"):
+                    output_canny = gr.Image(label="Canny Edge Mask", type="pil", interactive=False)
+                with gr.Tab("🖊️ Processed Line Art"):
+                    output_sketch = gr.Image(label="Input Line Art", type="pil", interactive=False)
+
+            full_prompt_display = gr.Textbox(label="Active Full Prompt", interactive=False, lines=2)
+            status_box = gr.Textbox(label="System Status & Metrics", interactive=False, lines=1)
+
+    # Event Bindings
+    sample_btn.click(
+        fn=generate_sample_sketch_wrapper,
+        inputs=[],
+        outputs=[sketch_editor]
+    )
+    
+    render_btn.click(
+        fn=render_product,
+        inputs=[
+            sketch_editor,
+            product_type,
+            material,
+            finish,
+            lighting,
+            custom_prompt,
+            negative_prompt,
+            controlnet_scale,
+            guidance_scale,
+            num_steps,
+            seed_input,
+            canny_low,
+            canny_high
+        ],
+        outputs=[output_render, output_canny, output_sketch, full_prompt_display, status_box]
+    )
+
+if __name__ == "__main__":
+    # Launch Gradio local web server
+    demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False)
