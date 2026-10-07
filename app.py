@@ -13,6 +13,7 @@ sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 from src.preprocessor import extract_structural_mask
 from src.sketch_generator import generate_sample_sneaker_sketch
 from src.pipeline import ProductDesignPipeline
+from src.grid_utils import create_image_grid
 
 # Global pipeline instance for lazy loading
 GLOBAL_PIPELINE = None
@@ -104,6 +105,7 @@ def generate_sample_sketch_wrapper():
 def render_product(
     sketch_input,
     preprocessor_mode,
+    output_layout_mode,
     product_type,
     material,
     finish,
@@ -117,10 +119,16 @@ def render_product(
     canny_low,
     canny_high
 ):
-    """Core event handler that executes preprocessor and diffusion pipeline."""
+    """Core event handler that executes preprocessor and diffusion pipeline for single or batch renders."""
     start_time = time.time()
     
     try:
+        # Determine number of batch samples (1 vs 4)
+        if "4" in output_layout_mode or "grid" in output_layout_mode.lower():
+            num_samples = 4
+        else:
+            num_samples = 1
+
         # 1. Extract PIL image from sketch input
         sketch_img = extract_pil_from_input(sketch_input)
         if sketch_img is None:
@@ -150,9 +158,9 @@ def render_product(
         else:
             active_seed = int(seed_input)
             
-        # 5. Load Pipeline & Run Inference with selected preprocessor mode
+        # 5. Load Pipeline & Run Inference
         pipe = get_pipeline()
-        rendered_img = pipe.generate(
+        rendered_images = pipe.generate(
             canny_image=mask_img,
             prompt=full_prompt,
             mode=preprocessor_mode,
@@ -160,22 +168,29 @@ def render_product(
             controlnet_conditioning_scale=float(controlnet_scale),
             guidance_scale=float(guidance_scale),
             num_inference_steps=int(num_steps),
-            seed=active_seed
+            seed=active_seed,
+            num_samples=num_samples
         )
         
+        # Create Composite 2x2 Grid Contact Sheet if 4 variants
+        if num_samples > 1:
+            composite_grid = create_image_grid(rendered_images, rows=2, cols=2)
+        else:
+            composite_grid = rendered_images[0]
+            
         elapsed = time.time() - start_time
         status = (
-            f"{status_prefix}Rendered in {elapsed:.2f}s | Mode: {preprocessor_mode} | "
+            f"{status_prefix}Rendered {num_samples} variant(s) in {elapsed:.2f}s | Mode: {preprocessor_mode} | "
             f"Seed: {active_seed} | ControlNet Scale: {controlnet_scale} | CFG: {guidance_scale}"
         )
         
-        return rendered_img, mask_img, sketch_img, full_prompt, status
+        return rendered_images, composite_grid, mask_img, sketch_img, full_prompt, status
 
     except Exception as err:
         err_msg = f"❌ Error during rendering: {str(err)}\n{traceback.format_exc()}"
         print(err_msg)
         blank_img = Image.new("RGB", (512, 512), (240, 240, 240))
-        return blank_img, blank_img, blank_img, "Error generating prompt", err_msg
+        return [blank_img], blank_img, blank_img, blank_img, "Error generating prompt", err_msg
 
 
 # Build Gradio UI Theme & Blocks Layout
@@ -198,20 +213,20 @@ with gr.Blocks(title="ForgeDiT Studio") as demo:
     gr.HTML("""
     <div id="main-header">
         <h1>🎨 ForgeDiT Studio</h1>
-        <p>Interactive Industrial & Product Design Rendering Engine powered by Multi-Preprocessor ControlNet & Diffusion Transformers</p>
+        <p>Interactive Industrial & Product Design Engine — Multi-Variant Batch & Multi-Preprocessor Studio</p>
     </div>
     """)
     
     with gr.Row():
         # LEFT COLUMN: INPUTS & CONTROLS
         with gr.Column(scale=5):
-            gr.Markdown("### 1. Sketch Canvas & Preprocessor Setup")
+            gr.Markdown("### 1. Sketch Canvas & Rendering Mode")
             
             sketch_editor = gr.ImageEditor(
                 label="Draw Product Outline or Upload Sketch",
                 type="pil",
                 image_mode="RGB",
-                height=350,
+                height=340,
                 sources=["upload", "clipboard"]
             )
             
@@ -223,9 +238,18 @@ with gr.Blocks(title="ForgeDiT Studio") as demo:
                         "Depth Map (3D Volume)"
                     ],
                     value="Canny Edge (Sharp Lines)",
-                    label="Preprocessor Mode",
-                    info="Choose how the model extracts geometry from your sketch"
+                    label="Preprocessor Mode"
                 )
+                output_layout_mode = gr.Dropdown(
+                    choices=[
+                        "1 Single Render",
+                        "4 Grid Variants (2x2 Grid)"
+                    ],
+                    value="1 Single Render",
+                    label="Output Layout Mode"
+                )
+                
+            with gr.Row():
                 sample_btn = gr.Button("✏️ Load Sample Sketch", variant="secondary", size="sm")
 
             gr.Markdown("### 2. Design & Material Presets")
@@ -313,13 +337,22 @@ with gr.Blocks(title="ForgeDiT Studio") as demo:
 
         # RIGHT COLUMN: OUTPUTS & INSPECTION
         with gr.Column(scale=5):
-            gr.Markdown("### 3. Generated Studio Renders & Mask Inspection")
+            gr.Markdown("### 3. Studio Outputs & Variant Inspector")
             
             with gr.Tabs():
-                with gr.Tab("🖼️ Photorealistic Render"):
-                    output_render = gr.Image(label="Render Output (512x512)", type="pil", interactive=False)
+                with gr.Tab("🖼️ Interactive Variant Gallery"):
+                    output_gallery = gr.Gallery(
+                        label="Render Variants (Click to Expand)",
+                        columns=2,
+                        rows=2,
+                        height=420,
+                        object_fit="contain",
+                        interactive=False
+                    )
+                with gr.Tab("📑 2x2 Contact Sheet Grid"):
+                    output_grid = gr.Image(label="Composite 2x2 Grid Sheet", type="pil", interactive=False)
                 with gr.Tab("🔍 Structural Mask (Canny / HED / Depth)"):
-                    output_mask = gr.Image(label="Extracted Mask", type="pil", interactive=False)
+                    output_mask = gr.Image(label="Extracted Structural Mask", type="pil", interactive=False)
                 with gr.Tab("🖊️ Processed Line Art"):
                     output_sketch = gr.Image(label="Input Line Art", type="pil", interactive=False)
 
@@ -338,6 +371,7 @@ with gr.Blocks(title="ForgeDiT Studio") as demo:
         inputs=[
             sketch_editor,
             preprocessor_mode,
+            output_layout_mode,
             product_type,
             material,
             finish,
@@ -351,7 +385,7 @@ with gr.Blocks(title="ForgeDiT Studio") as demo:
             canny_low,
             canny_high
         ],
-        outputs=[output_render, output_mask, output_sketch, full_prompt_display, status_box]
+        outputs=[output_gallery, output_grid, output_mask, output_sketch, full_prompt_display, status_box]
     )
 
 if __name__ == "__main__":
