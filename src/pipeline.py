@@ -1,5 +1,6 @@
 import torch
 from PIL import Image
+from typing import List, Union
 from diffusers import StableDiffusionControlNetPipeline, ControlNetModel, UniPCMultistepScheduler
 
 CONTROLNET_IDS = {
@@ -11,7 +12,7 @@ CONTROLNET_IDS = {
 class ProductDesignPipeline:
     def __init__(self, device: str = None, use_fp16: bool = True):
         """
-        Initializes the Latent ControlNet Diffusion Pipeline supporting multiple preprocessor modes.
+        Initializes the Latent ControlNet Diffusion Pipeline supporting multiple preprocessor modes & batch generation.
         """
         if device is None:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -93,26 +94,37 @@ class ProductDesignPipeline:
         controlnet_conditioning_scale: float = 0.8,
         guidance_scale: float = 7.5,
         num_inference_steps: int = 20,
-        seed: int = 42
-    ) -> Image.Image:
+        seed: int = 42,
+        num_samples: int = 1
+    ) -> List[Image.Image]:
         """
-        Runs the Latent ControlNet Denoising Loop with dynamic preprocessor adapter support.
+        Runs the Latent ControlNet Denoising Loop supporting single or batch variant generation.
+        
+        Returns:
+            List[Image.Image]: A list of rendered PIL Images (length = num_samples).
         """
         if self.pipe is None:
             self.load_models(default_mode=mode)
         else:
             self.set_active_mode(mode)
             
-        generator = torch.Generator(device=self.device).manual_seed(seed) if seed is not None else None
-        
+        prompts = [prompt] * num_samples
+        negative_prompts = [negative_prompt] * num_samples
+        images = [canny_image] * num_samples
+
+        if seed is not None and seed != -1:
+            generators = [torch.Generator(device=self.device).manual_seed(seed + i) for i in range(num_samples)]
+        else:
+            generators = None
+
         output = self.pipe(
-            prompt=prompt,
-            negative_prompt=negative_prompt,
-            image=canny_image,
+            prompt=prompts,
+            negative_prompt=negative_prompts,
+            image=images,
             controlnet_conditioning_scale=controlnet_conditioning_scale,
             guidance_scale=guidance_scale,
             num_inference_steps=num_inference_steps,
-            generator=generator
+            generator=generators
         )
         
-        return output.images[0]
+        return output.images
