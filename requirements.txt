@@ -8,3 +8,6 @@ pillow
 numpy
 matplotlib
 gradio>=4.0.0
+controlnet_aux>=0.0.7
+timm
+einops

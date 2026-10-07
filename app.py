@@ -10,7 +10,7 @@ import gradio as gr
 # Ensure src modules can be imported
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from src.preprocessor import process_sketch_to_canny
+from src.preprocessor import extract_structural_mask
 from src.sketch_generator import generate_sample_sneaker_sketch
 from src.pipeline import ProductDesignPipeline
 
@@ -94,7 +94,6 @@ def construct_full_prompt(product_type, material, finish, lighting, custom_text)
 def generate_sample_sketch_wrapper():
     """Generates a sample sneaker sketch for quick testing."""
     sample_pil = generate_sample_sneaker_sketch(width=512, height=512)
-    # Return dictionary format compatible with Gradio ImageEditor
     return {
         "background": sample_pil,
         "layers": [],
@@ -104,6 +103,7 @@ def generate_sample_sketch_wrapper():
 
 def render_product(
     sketch_input,
+    preprocessor_mode,
     product_type,
     material,
     finish,
@@ -124,19 +124,18 @@ def render_product(
         # 1. Extract PIL image from sketch input
         sketch_img = extract_pil_from_input(sketch_input)
         if sketch_img is None:
-            # Fallback to sample sneaker sketch if empty input
             sketch_img = generate_sample_sneaker_sketch(width=512, height=512)
             status_prefix = "⚠️ Canvas empty! Auto-loaded sample sneaker sketch. "
         else:
             status_prefix = "✅ Sketch loaded. "
             
-        # Resize to standard 512x512 for SD v1.5
         sketch_img = sketch_img.resize((512, 512), Image.Resampling.LANCZOS)
         
-        # 2. Extract Canny Edge Map
-        canny_map = process_sketch_to_canny(
-            sketch_img, 
-            low_threshold=int(canny_low), 
+        # 2. Extract Structural Mask (Canny, HED, or Depth)
+        mask_img = extract_structural_mask(
+            sketch_img,
+            mode=preprocessor_mode,
+            low_threshold=int(canny_low),
             high_threshold=int(canny_high)
         )
         
@@ -151,11 +150,12 @@ def render_product(
         else:
             active_seed = int(seed_input)
             
-        # 5. Load Pipeline & Run Inference
+        # 5. Load Pipeline & Run Inference with selected preprocessor mode
         pipe = get_pipeline()
         rendered_img = pipe.generate(
-            canny_image=canny_map,
+            canny_image=mask_img,
             prompt=full_prompt,
+            mode=preprocessor_mode,
             negative_prompt=negative_prompt,
             controlnet_conditioning_scale=float(controlnet_scale),
             guidance_scale=float(guidance_scale),
@@ -165,16 +165,15 @@ def render_product(
         
         elapsed = time.time() - start_time
         status = (
-            f"{status_prefix}Rendered in {elapsed:.2f}s | "
+            f"{status_prefix}Rendered in {elapsed:.2f}s | Mode: {preprocessor_mode} | "
             f"Seed: {active_seed} | ControlNet Scale: {controlnet_scale} | CFG: {guidance_scale}"
         )
         
-        return rendered_img, canny_map, sketch_img, full_prompt, status
+        return rendered_img, mask_img, sketch_img, full_prompt, status
 
     except Exception as err:
         err_msg = f"❌ Error during rendering: {str(err)}\n{traceback.format_exc()}"
         print(err_msg)
-        # Create blank fallback images for UI stability
         blank_img = Image.new("RGB", (512, 512), (240, 240, 240))
         return blank_img, blank_img, blank_img, "Error generating prompt", err_msg
 
@@ -199,25 +198,35 @@ with gr.Blocks(title="ForgeDiT Studio") as demo:
     gr.HTML("""
     <div id="main-header">
         <h1>🎨 ForgeDiT Studio</h1>
-        <p>Interactive Industrial & Product Design Rendering Engine powered by Diffusion Transformers & ControlNet</p>
+        <p>Interactive Industrial & Product Design Rendering Engine powered by Multi-Preprocessor ControlNet & Diffusion Transformers</p>
     </div>
     """)
     
     with gr.Row():
         # LEFT COLUMN: INPUTS & CONTROLS
         with gr.Column(scale=5):
-            gr.Markdown("### 1. Sketch Canvas & Input")
+            gr.Markdown("### 1. Sketch Canvas & Preprocessor Setup")
             
             sketch_editor = gr.ImageEditor(
                 label="Draw Product Outline or Upload Sketch",
                 type="pil",
                 image_mode="RGB",
-                height=380,
+                height=350,
                 sources=["upload", "clipboard"]
             )
             
             with gr.Row():
-                sample_btn = gr.Button("✏️ Load Sample Sneaker Sketch", variant="secondary", size="sm")
+                preprocessor_mode = gr.Dropdown(
+                    choices=[
+                        "Canny Edge (Sharp Lines)",
+                        "HED Soft Contour (Hand Sketch)",
+                        "Depth Map (3D Volume)"
+                    ],
+                    value="Canny Edge (Sharp Lines)",
+                    label="Preprocessor Mode",
+                    info="Choose how the model extracts geometry from your sketch"
+                )
+                sample_btn = gr.Button("✏️ Load Sample Sketch", variant="secondary", size="sm")
 
             gr.Markdown("### 2. Design & Material Presets")
             with gr.Row():
@@ -276,7 +285,7 @@ with gr.Blocks(title="ForgeDiT Studio") as demo:
                 with gr.Row():
                     controlnet_scale = gr.Slider(
                         minimum=0.0, maximum=1.0, value=0.8, step=0.05,
-                        label="ControlNet Strength (Sketch Geometry Adherence)"
+                        label="ControlNet Strength (Geometry Adherence)"
                     )
                     guidance_scale = gr.Slider(
                         minimum=1.0, maximum=20.0, value=7.5, step=0.5,
@@ -309,8 +318,8 @@ with gr.Blocks(title="ForgeDiT Studio") as demo:
             with gr.Tabs():
                 with gr.Tab("🖼️ Photorealistic Render"):
                     output_render = gr.Image(label="Render Output (512x512)", type="pil", interactive=False)
-                with gr.Tab("🔍 Extracted Canny Mask"):
-                    output_canny = gr.Image(label="Canny Edge Mask", type="pil", interactive=False)
+                with gr.Tab("🔍 Structural Mask (Canny / HED / Depth)"):
+                    output_mask = gr.Image(label="Extracted Mask", type="pil", interactive=False)
                 with gr.Tab("🖊️ Processed Line Art"):
                     output_sketch = gr.Image(label="Input Line Art", type="pil", interactive=False)
 
@@ -328,6 +337,7 @@ with gr.Blocks(title="ForgeDiT Studio") as demo:
         fn=render_product,
         inputs=[
             sketch_editor,
+            preprocessor_mode,
             product_type,
             material,
             finish,
@@ -341,9 +351,8 @@ with gr.Blocks(title="ForgeDiT Studio") as demo:
             canny_low,
             canny_high
         ],
-        outputs=[output_render, output_canny, output_sketch, full_prompt_display, status_box]
+        outputs=[output_render, output_mask, output_sketch, full_prompt_display, status_box]
     )
 
 if __name__ == "__main__":
-    # Launch Gradio local web server
     demo.queue().launch(server_name="0.0.0.0", server_port=7860, share=False, theme=theme, css=custom_css)
