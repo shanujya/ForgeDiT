@@ -105,6 +105,7 @@ def generate_sample_sketch_wrapper():
 def render_product(
     sketch_input,
     preprocessor_mode,
+    inference_mode,
     output_layout_mode,
     product_type,
     material,
@@ -128,6 +129,11 @@ def render_product(
             num_samples = 4
         else:
             num_samples = 1
+
+        # Clamp steps to 4 automatically when Turbo mode is selected
+        is_turbo = "turbo" in inference_mode.lower()
+        if is_turbo:
+            num_steps = 4
 
         # 1. Extract PIL image from sketch input
         sketch_img = extract_pil_from_input(sketch_input)
@@ -164,6 +170,7 @@ def render_product(
             canny_image=mask_img,
             prompt=full_prompt,
             mode=preprocessor_mode,
+            inference_mode=inference_mode,
             negative_prompt=negative_prompt,
             controlnet_conditioning_scale=float(controlnet_scale),
             guidance_scale=float(guidance_scale),
@@ -179,9 +186,11 @@ def render_product(
             composite_grid = rendered_images[0]
             
         elapsed = time.time() - start_time
+        turbo_label = "⚡ Turbo (4-step)" if is_turbo else "Standard (20-step)"
         status = (
-            f"{status_prefix}Rendered {num_samples} variant(s) in {elapsed:.2f}s | Mode: {preprocessor_mode} | "
-            f"Seed: {active_seed} | ControlNet Scale: {controlnet_scale} | CFG: {guidance_scale}"
+            f"{status_prefix}Rendered {num_samples} variant(s) in {elapsed:.2f}s | "
+            f"Inference: {turbo_label} | Preprocessor: {preprocessor_mode} | "
+            f"Seed: {active_seed} | CFG: {'1.0 (LCM)' if is_turbo else guidance_scale}"
         )
         
         return rendered_images, composite_grid, mask_img, sketch_img, full_prompt, status
@@ -239,6 +248,15 @@ with gr.Blocks(title="ForgeDiT Studio") as demo:
                     ],
                     value="Canny Edge (Sharp Lines)",
                     label="Preprocessor Mode"
+                )
+                inference_mode = gr.Dropdown(
+                    choices=[
+                        "Standard (High Quality)",
+                        "Turbo ⚡ (4-Step Fast)"
+                    ],
+                    value="Standard (High Quality)",
+                    label="Inference Mode",
+                    info="Turbo ⚡ is ~5x faster but requires 4 steps only"
                 )
                 output_layout_mode = gr.Dropdown(
                     choices=[
@@ -371,6 +389,7 @@ with gr.Blocks(title="ForgeDiT Studio") as demo:
         inputs=[
             sketch_editor,
             preprocessor_mode,
+            inference_mode,
             output_layout_mode,
             product_type,
             material,
