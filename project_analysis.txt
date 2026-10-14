@@ -1,0 +1,117 @@
+================================================================================
+FORGEDIT STUDIO - ARCHITECTURE & CODEBASE ANALYSIS
+================================================================================
+Generated: 2026-10-13
+
+1. PROJECT OVERVIEW & ARCHITECTURE
+--------------------------------------------------------------------------------
+ForgeDiT Studio is an industrial design pipeline that converts 2D line sketches
+into photorealistic commercial product renders using Latent Diffusion Models
+conditioned with ControlNet.
+
+Pipeline Flow:
+[Sketch Input] (512x512)
+      |
+      v
+[Preprocessor (Canny / HED / Depth)]
+      |
+      v
+[ControlNet Conditioning] + [Prompt Engineering]
+      |
+      v
+[SD v1.5 Diffusion] (Base: runwayml/stable-diffusion-v1-5)
+      |
+      v
+[Product Render / 2x2 Contact Sheet Grid]
+
+Key Models & Accelerators:
+- Base Model: Stable Diffusion v1.5 (runwayml/stable-diffusion-v1-5)
+- ControlNet Adapters:
+    * Canny: lllyasviel/sd-controlnet-canny
+    * HED:   lllyasviel/sd-controlnet-hed
+    * Depth: lllyasviel/sd-controlnet-depth
+- Acceleration: LCM LoRA adapter (latent-consistency/lcm-lora-sdv1-5) with
+  LCMScheduler for 4-step Turbo mode (~5x speedup).
+
+
+2. CODEBASE STRUCTURE & FILE ANALYSIS
+--------------------------------------------------------------------------------
+- app.py:
+  Interactive Gradio Web Studio (Gradio v4+).
+  Features:
+  * ImageEditor canvas for sketch input or sample loading.
+  * Multi-preprocessor selector (Canny Edge, HED Soft Contour, Depth Map).
+  * Inference Mode selector (Standard 20-step vs. Turbo 4-step).
+  * Output layout options (1 single render vs. 4 grid variants).
+  * Preset dropdowns for product category, materials, finishes, and lighting.
+  * Advanced parameter accordion (ControlNet weight, CFG scale, seed, Canny thresholds).
+  * Interactive output gallery and stitched 2x2 contact sheet viewer.
+
+- src/pipeline.py (ProductDesignPipeline):
+  Core Latent ControlNet Diffusion Pipeline wrapping StableDiffusionControlNetPipeline.
+  * Lazy model loading with GPU/CPU auto-detection and FP16/FP32 precision.
+  * Dynamic hot-swapping of ControlNet adapters (Canny, HED, Depth).
+  * LCM LoRA runtime fusion and un-fusion for fast switching between Turbo
+    (4-step LCM) and Standard (20-step UniPC) modes.
+  * Multi-sample batch generation with reproducible seeds.
+
+- src/preprocessor.py:
+  Structural mask extraction module supporting three modes:
+  * Canny: Gaussian blur + OpenCV Canny for sharp CAD/vector blueprints.
+  * HED: Soft contour extraction via controlnet_aux HEDdetector with adaptive
+    morphological filter fallback for loose pencil sketches.
+  * Depth: MiDaS depth estimator via controlnet_aux MidasDetector with distance-
+    transform fallback for 2.5D surface curvature.
+
+- src/grid_utils.py:
+  Contact sheet generator. Stitches multiple PIL variant images into a clean
+  2x2 composite grid with customizable padding and dark "Variant N" badges.
+
+- src/sketch_generator.py:
+  Synthetic sneaker sketch generator using OpenCV 2D geometric primitives
+  (ellipses, polylines, lines) on a 512x512 canvas for automated unit testing.
+
+- run_phase1.py:
+  Headless Phase 1 verification script that validates the full sketch -> edge map ->
+  ControlNet-conditioned render loop end-to-end.
+
+- requirements.txt:
+  Dependencies: torch, torchvision, diffusers>=0.25.0, transformers>=4.36.0,
+  accelerate>=0.25.0, opencv-python, pillow, numpy, matplotlib, gradio>=4.0.0,
+  controlnet_aux>=0.0.7, timm, einops.
+
+
+3. SYSTEM & RUNTIME ENVIRONMENT
+--------------------------------------------------------------------------------
+- Repository: /home/shanujya/forgedit-studio
+- Branch: main (clean working tree, up to date with origin/main)
+- Python Virtualenv: /home/shanujya/forgedit-studio/venv
+- PyTorch Version: 2.14.0+cu130
+- Compute Device: CPU mode detected (CUDA available: False)
+  * Note: The 4-step Turbo mode via LCM LoRA is especially beneficial
+    on CPU hardware to minimize latency.
+
+
+4. RECENT GIT HISTORY
+--------------------------------------------------------------------------------
+- 81d2a3c: implement turbo inference mode with automatic step clamping and dynamic status updates
+- 0097eab: add LCM LoRA turbo mode support for faster inference in pipeline
+- 35a3467: support for multi-variant batch generation and gallery UI layout
+- 627ad71: dd utility to stitch image variants into a grid contact sheet
+- 6d9e55f: batch image generation support to ProductDesignPipeline
+
+
+5. SUGGESTED NEXT STEPS / ROADMAP
+--------------------------------------------------------------------------------
+1. Dedicated CLI Interface:
+   Create a standalone command-line generation script (e.g. render_cli.py)
+   allowing quick image generation without launching the Gradio web UI.
+
+2. CPU Inference Optimization:
+   Evaluate PyTorch CPU optimizations (Intel OpenVINO, IPEX, or ONNX Runtime)
+   for even faster generation without dedicated GPU hardware.
+
+3. Preset Expansion:
+   Add more industrial design categories (e.g., consumer electronics, automotive,
+   furniture) and fine-tuned negative prompt presets.
+================================================================================
